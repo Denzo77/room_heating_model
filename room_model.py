@@ -37,7 +37,7 @@ VOLUME = ROOM_SIZE[0] * ROOM_SIZE[1] * ROOM_SIZE[2]  # Volume of room. [m^3]
 
 C_AIR = DENSITY_AIR * VOLUME * Cp_AIR  # Heat capacity of air in the room. [J/K]
 # C_AIR = DENSITY_AIR * VOLUME * Cp_AIR + 40000 # Naively adding thermal capacitance to represent extra objects fails.
-WALL_CONDUCTANCE = 1.0 / (R_WALLS * SURFACE_AREA)  # Thermal conductance of room walls. Equivalent to U-value [W/K]
+WALL_CONDUCTANCE = SURFACE_AREA * (1.0 / R_WALLS)  # Thermal conductance of room walls. Equivalent to U-value [W/K]
 
 
 print("Surface Area: {0:.2f} m^2\nVolume: {1:.2f} m^3".format(SURFACE_AREA, VOLUME))
