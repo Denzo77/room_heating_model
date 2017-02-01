@@ -80,20 +80,20 @@ def calc_temp(room_temp, *args):
     """
     return room_temp + (1.0 / C_AIR) * sum(args)
 
-room_temp = [START_TEMP]
+room_temps = [START_TEMP]
 heat_in = [0.0]
 heat_out = [0.0]
 for i in range(N_ITERATIONS):
-    heat_in.append(heat_in_radiator(room_temp[-1], RADIATOR_TEMP))
-    heat_out.append(heat_loss_walls(room_temp[-1], OUTSIDE_TEMP))
-    room_temp.append(
-        calc_temp(room_temp[-1],
+    heat_in.append(heat_in_radiator(room_temps[-1], RADIATOR_TEMP))
+    heat_out.append(heat_loss_walls(room_temps[-1], OUTSIDE_TEMP))
+    room_temps.append(
+        calc_temp(room_temps[-1],
                   heat_in[-1],
                   heat_out[-1])
     )
 
 # Print final temp and total energy use.
-print("Final Temp: {0:.2f} C\nEnergy Use: {1:.2f} kJ\nEnergy Loss: {2:.2f} kJ".format(room_temp[-1],
+print("Final Temp: {0:.2f} C\nEnergy Use: {1:.2f} kJ\nEnergy Loss: {2:.2f} kJ".format(room_temps[-1],
                                                                                       sum(heat_in) / 1000.0,
                                                                                       sum(heat_out) / 1000.0))
 
