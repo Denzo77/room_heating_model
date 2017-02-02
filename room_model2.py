@@ -10,12 +10,15 @@ Gives basic equation
 stored_heat = start_heat + (in_heat + out_heat) [Q_room = Q_start + Q_rad + Q_loss]
 
 """
+import numpy as np
+import matplotlib.pyplot as plt
+
 
 # Simulation setup. SET THESE VALUES.
 N_ITERATIONS = 4 * 60 * 60  # on for 20 minutes
 START_TEMP = 20.0  # [C]
 OUTSIDE_TEMP = 0.0  # [C]
-RADIATOR_TEMP = [60.0 if (x < 20 * 60) else None for x in range(N_ITERATIONS)]  # [C]
+RADIATOR_TEMP = np.array([60.0 if (x < 20 * 60) else 0.0 for x in range(N_ITERATIONS)])  # [C]
 ROOM_SIZE = (3.0, 5.0, 2.3)  # w, l, h. Assumes room is cuboid. [m]
 
 # The R(SI) value of the room (resistance to heat transfer).
@@ -87,22 +90,21 @@ def foo(room_temp, foo_temp):
     capacitance = 1000000.0
     return foo_temp + (((room_temp - foo_temp) * conductance) / capacitance)
 
-bar = [START_TEMP]
-room_temps = [START_TEMP]
-heat_in = [0.0]
-heat_out = [0.0]
+bar = np.array([START_TEMP for _ in range(N_ITERATIONS)])
+room_temps = np.array([START_TEMP for _ in range(N_ITERATIONS)])
+heat_in = np.zeros(N_ITERATIONS)
+heat_out = np.zeros(N_ITERATIONS)
+
 for i in range(N_ITERATIONS):
-    rad_temp = room_temps[-1] if RADIATOR_TEMP[i] is None else RADIATOR_TEMP[i]
-    heat_in.append(heat_in_radiator(room_temps[-1], rad_temp))
-    heat_out.append(heat_loss_walls(room_temps[-1], OUTSIDE_TEMP))
-    bar.append(foo(room_temps[-1], bar[-1]))
+    rad_temp = room_temps[i-1] if RADIATOR_TEMP[i] == 0.0 else RADIATOR_TEMP[i]
+    heat_in[i] = heat_in_radiator(room_temps[i-1], rad_temp)
+    heat_out[i] = heat_loss_walls(room_temps[i-1], OUTSIDE_TEMP)
+    bar[i] = foo(room_temps[i-1], bar[i-1])
     # print(bar)
-    room_temps.append(
-        calc_temp(room_temps[-1],
-                  heat_in[-1],
-                  heat_out[-1],
-                  (bar[-2]-bar[-1]) * 1000000.0)
-    )
+    room_temps[i] = calc_temp(room_temps[i-1],
+                              heat_in[i-1],
+                              heat_out[i-1],
+                              (bar[i-2]-bar[i-1]) * 1000000.0)
 
 # Print final temp and total energy use.
 print("Final Temp: {0:.2f} C\nEnergy Use: {1:.2f} kJ\nEnergy Loss: {2:.2f} kJ".format(room_temps[-1],
@@ -117,3 +119,18 @@ for i in range(len(room_temps)):
                                                                           bar[i] * 1000.0,
                                                                           heat_in[i],
                                                                           heat_out[i]))
+x = np.array([x / 60.0 for x in range(N_ITERATIONS)])
+heat_in /= 1000.0
+heat_out /= 1000.0
+net_heat = heat_in + heat_out
+# heat_stored = room_temps * C_AIR / 1000.0
+plt.subplot(2, 1, 1)
+plt.plot(x, room_temps, label="air temp C")
+plt.plot(x, bar, label="heat stored kJ")
+plt.legend()
+plt.subplot(2, 1, 2)
+plt.plot(x, heat_in, label="heat input kJ")
+plt.plot(x, heat_out, label="heat loss kJ")
+plt.plot(x, net_heat, label="net heat flow kJ")
+plt.legend()
+plt.show()
