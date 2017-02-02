@@ -12,7 +12,30 @@ stored_heat = start_heat + (in_heat + out_heat) [Q_room = Q_start + Q_rad + Q_lo
 """
 import numpy as np
 import matplotlib.pyplot as plt
+import json
+import datetime as dt
 
+
+DHD_HLP = 2.56  # SAP Heat loss parameter. Total heat loss / total floor area. [W/(m^2 K)]
+
+
+def get_valve_data(file):
+    with open(file, 'r') as f:
+        raw_valve_data = f.readlines()
+
+    decoded_valve_data = [json.loads(x) for x in raw_valve_data]
+
+    valve_ids = list(set((x[2]['@'] for x in decoded_valve_data)))
+    filtered_valve_data = [x for x in decoded_valve_data if x[2]['@'] == valve_ids[0]]
+    temps = [(x[0], x[2]['T|C16']/16.0) for x in filtered_valve_data if 'T|C16' in x[2]]
+    time_temps = []
+    for line in temps:
+        stripped_date = line[0].replace('T', ' ').replace('Z', '')
+        decoded_time = dt.datetime.strptime(stripped_date, "%Y-%m-%d %H:%M:%S")
+        time_temps.append((decoded_time, line[1]))
+        start_time = time_temps[0][0]
+        valve_readings = np.array([((x[0] - start_time).total_seconds(), x[1]) for x in time_temps])
+    return valve_readings
 
 # Simulation setup. SET THESE VALUES.
 N_ITERATIONS = 4 * 60 * 60  # on for 20 minutes
@@ -111,22 +134,25 @@ print("Final Temp: {0:.2f} C\nEnergy Use: {1:.2f} kJ\nEnergy Loss: {2:.2f} kJ".f
                                                                                       sum(heat_in) / 1000.0,
                                                                                       sum(heat_out) / 1000.0))
 
-# Print per iteration values.
-for i in range(len(room_temps)):
-    if i % 60 == 0:
-        print("{}\t| T:{:.2f}\tQ:{:.2f}\tQin:{:.2f}\tQout:{:.2f} ".format(i // 60,
-                                                                          room_temps[i],
-                                                                          bar[i] * 1000.0,
-                                                                          heat_in[i],
-                                                                          heat_out[i]))
-x = np.array([x / 60.0 for x in range(N_ITERATIONS)])
+# # Print per iteration values.
+# for i in range(len(room_temps)):
+#     if i % 60 == 0:
+#         print("{}\t| T:{:.2f}\tQ:{:.2f}\tQin:{:.2f}\tQout:{:.2f} ".format(i // 60,
+#                                                                           room_temps[i],
+#                                                                           bar[i] * 1000.0,
+#                                                                           heat_in[i],
+#                                                                           heat_out[i]))
+x = np.array([x for x in range(N_ITERATIONS)])
 heat_in /= 1000.0
 heat_out /= 1000.0
 net_heat = heat_in + heat_out
 # heat_stored = room_temps * C_AIR / 1000.0
+plot_valves = valve_readings[valve_readings[:, 0] < N_ITERATIONS]
 plt.subplot(2, 1, 1)
 plt.plot(x, room_temps, label="air temp C")
 plt.plot(x, bar, label="heat stored kJ")
+plt.plot(plot_valves[:, 0], plot_valves[:, 1], label="valve temp C")
+plt.plot
 plt.legend()
 plt.subplot(2, 1, 2)
 plt.plot(x, heat_in, label="heat input kJ")
