@@ -18,27 +18,8 @@ import datetime as dt
 
 DHD_HLP = 2.56  # SAP Heat loss parameter. Total heat loss / total floor area. [W/(m^2 K)]
 
-
-def get_valve_data(file):
-    with open(file, 'r') as f:
-        raw_valve_data = f.readlines()
-
-    decoded_valve_data = [json.loads(x) for x in raw_valve_data]
-
-    valve_ids = list(set((x[2]['@'] for x in decoded_valve_data)))
-    filtered_valve_data = [x for x in decoded_valve_data if x[2]['@'] == valve_ids[0]]
-    temps = [(x[0], x[2]['T|C16']/16.0) for x in filtered_valve_data if 'T|C16' in x[2]]
-    time_temps = []
-    for line in temps:
-        stripped_date = line[0].replace('T', ' ').replace('Z', '')
-        decoded_time = dt.datetime.strptime(stripped_date, "%Y-%m-%d %H:%M:%S")
-        time_temps.append((decoded_time, line[1]))
-        start_time = time_temps[0][0]
-        valve_readings = np.array([((x[0] - start_time).total_seconds(), x[1]) for x in time_temps])
-    return valve_readings
-
 # Simulation setup. SET THESE VALUES.
-N_ITERATIONS = 4 * 60 * 60  # on for 20 minutes
+N_ITERATIONS = 24 * 60 * 60  # on for a day
 START_TEMP = 20.0  # [C]
 OUTSIDE_TEMP = 0.0  # [C]
 RADIATOR_TEMP = np.array([60.0 if (x < 20 * 60) else 0.0 for x in range(N_ITERATIONS)])  # [C]
@@ -48,7 +29,7 @@ ROOM_SIZE = (3.0, 5.0, 2.3)  # w, l, h. Assumes room is cuboid. [m]
 # Equivalent of 1/U-value. Using R value as easier to combine.
 # From U-value of 0.8, given by DHD as typical for poorly insulated house.
 # R_WALLS = 0.1  # [K m^2/W]
-R_WALLS = 1.25  # [K m^2/W]
+# R_WALLS = 1.25  # [K m^2/W]
 # R_WALLS = 10.0  # [K m^2/W]
 
 # Physical constants.
@@ -64,11 +45,34 @@ VOLUME = ROOM_SIZE[0] * ROOM_SIZE[1] * ROOM_SIZE[2]  # Volume of room. [m^3]
 
 C_AIR = DENSITY_AIR * VOLUME * Cp_AIR  # Heat capacity of air in the room. [J/K]
 # C_AIR = DENSITY_AIR * VOLUME * Cp_AIR + 40000 # Naively adding thermal capacitance to represent extra objects fails.
-WALL_CONDUCTANCE = SURFACE_AREA * (1.0 / R_WALLS)  # Thermal conductance of room walls. Equivalent to U-value [W/K]
+# WALL_CONDUCTANCE = SURFACE_AREA * (1.0 / R_WALLS)  # Thermal conductance of room walls. Equivalent to U-value [W/K]
+WALL_CONDUCTANCE = ROOM_SIZE[0] * ROOM_SIZE[1] * DHD_HLP  # Thermal conductance based on DHD's SAP
 
 
 print("Surface Area: {0:.2f} m^2\nVolume: {1:.2f} m^3".format(SURFACE_AREA, VOLUME))
 print("Thermal Conductance: {0:.0f} W/K\nHeat Capacity: {1:.0f} kJ/K".format(WALL_CONDUCTANCE, C_AIR / 1000.0))
+
+
+def get_valve_data(file):
+    with open(file, 'r') as f:
+        raw_valve_data = f.readlines()
+
+    decoded_valve_data = [json.loads(x) for x in raw_valve_data]
+
+    valve_ids = list(set((x[2]['@'] for x in decoded_valve_data)))
+    print(valve_ids)
+    filtered_valve_data = [x for x in decoded_valve_data if x[2]['@'] == valve_ids[0]]
+    temps = [(x[0], x[2]['T|C16']/16.0) for x in filtered_valve_data if 'T|C16' in x[2]]
+    time_temps = []
+    for line in temps:
+        stripped_date = line[0].replace('T', ' ').replace('Z', '')
+        decoded_time = dt.datetime.strptime(stripped_date, "%Y-%m-%d %H:%M:%S")
+        time_temps.append((decoded_time, line[1]))
+    start_time = time_temps[0][0]
+    results = [((x[0] - start_time).total_seconds(), x[1]) for x in time_temps]
+    return results
+
+valve_readings = np.array(get_valve_data("201701.json"))
 
 
 def heat_in_radiator(room_temp, radiator_temp):
