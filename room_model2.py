@@ -77,9 +77,17 @@ def get_valve_data(file):
     start_time = temperatures[0][0] if temperatures[0][0] < valve_open_pc[0][0] else valve_open_pc[0][0]
     temperatures = [((x[0] - start_time).total_seconds(), x[1]) for x in temperatures]
     valve_open_pc = [((x[0] - start_time).total_seconds(), x[1]) for x in valve_open_pc]
+
+    # times = range(N_ITERATIONS)
+    # temp = [] * N_ITERATIONS
+    # open_pc = [] * N_ITERATIONS
+    # for i in times:
+    #     if int(temperatures[i][0]) == i:
+    #         temp[i] = temperatures[]
     return np.array(temperatures), np.array(valve_open_pc)
 
 valve_room_temps, valve_open_pc = get_valve_data("201701.json")
+print(valve_room_temps)
 
 
 def heat_in_radiator(room_temp, radiator_temp):
