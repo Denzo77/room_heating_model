@@ -56,23 +56,30 @@ print("Thermal Conductance: {0:.0f} W/K\nHeat Capacity: {1:.0f} kJ/K".format(WAL
 def get_valve_data(file):
     with open(file, 'r') as f:
         raw_valve_data = f.readlines()
-
     decoded_valve_data = [json.loads(x) for x in raw_valve_data]
-
-    valve_ids = list(set((x[2]['@'] for x in decoded_valve_data)))
-    print(valve_ids)
-    filtered_valve_data = [x for x in decoded_valve_data if x[2]['@'] == valve_ids[0]]
-    temps = [(x[0], x[2]['T|C16']/16.0) for x in filtered_valve_data if 'T|C16' in x[2]]
-    time_temps = []
-    for line in temps:
+    # valve_ids = list(set((x[2]['@'] for x in decoded_valve_data)))
+    # print(valve_ids[0])
+    # filtered_valve_data = [x for x in decoded_valve_data if x[2]['@'] == valve_ids[0]]
+    filtered_valve_data = [x for x in decoded_valve_data if x[2]['@'] == "96F0CED3B4E690E8"]
+    raw_temps = [(x[0], x[2]['T|C16']/16.0) for x in filtered_valve_data if 'T|C16' in x[2]]
+    raw_valve_pc = [(x[0], x[2]['H|%']) for x in filtered_valve_data if 'H|%' in x[2]]
+    temperatures = []
+    valve_open_pc = []
+    # Convert date time into seconds.
+    for line in raw_temps:
         stripped_date = line[0].replace('T', ' ').replace('Z', '')
         decoded_time = dt.datetime.strptime(stripped_date, "%Y-%m-%d %H:%M:%S")
-        time_temps.append((decoded_time, line[1]))
-    start_time = time_temps[0][0]
-    results = [((x[0] - start_time).total_seconds(), x[1]) for x in time_temps]
-    return results
+        temperatures.append((decoded_time, line[1]))
+    for line in raw_valve_pc:
+        stripped_date = line[0].replace('T', ' ').replace('Z', '')
+        decoded_time = dt.datetime.strptime(stripped_date, "%Y-%m-%d %H:%M:%S")
+        valve_open_pc.append((decoded_time, line[1]))
+    start_time = temperatures[0][0] if temperatures[0][0] < valve_open_pc[0][0] else valve_open_pc[0][0]
+    temperatures = [((x[0] - start_time).total_seconds(), x[1]) for x in temperatures]
+    valve_open_pc = [((x[0] - start_time).total_seconds(), x[1]) for x in valve_open_pc]
+    return np.array(temperatures), np.array(valve_open_pc)
 
-valve_readings = np.array(get_valve_data("201701.json"))
+valve_room_temps, valve_open_pc = get_valve_data("201701.json")
 
 
 def heat_in_radiator(room_temp, radiator_temp):
@@ -151,16 +158,19 @@ heat_in /= 1000.0
 heat_out /= 1000.0
 net_heat = heat_in + heat_out
 # heat_stored = room_temps * C_AIR / 1000.0
-plot_valves = valve_readings[valve_readings[:, 0] < N_ITERATIONS]
-plt.subplot(2, 1, 1)
+plot_valve_temps = valve_room_temps[valve_room_temps[:, 0] < N_ITERATIONS]
+plot_valve_pc = valve_open_pc[valve_open_pc[:, 0] < N_ITERATIONS]
+plt.subplot(3, 1, 1)
 plt.plot(x, room_temps, label="air temp C")
 plt.plot(x, bar, label="heat stored kJ")
-plt.plot(plot_valves[:, 0], plot_valves[:, 1], label="valve temp C")
-plt.plot
 plt.legend()
-plt.subplot(2, 1, 2)
+plt.subplot(3, 1, 2)
 plt.plot(x, heat_in, label="heat input kJ")
 plt.plot(x, heat_out, label="heat loss kJ")
 plt.plot(x, net_heat, label="net heat flow kJ")
+plt.legend()
+plt.subplot(3, 1, 3)
+plt.plot(plot_valve_temps[:, 0], plot_valve_temps[:, 1], label="valve temp C")
+plt.plot(plot_valve_pc[:, 0], plot_valve_pc[:, 1], label="valve opening %")
 plt.legend()
 plt.show()
