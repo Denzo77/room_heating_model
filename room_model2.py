@@ -26,8 +26,9 @@ N_ITERATIONS = 24 * 60 * 60  # on for a day
 START_TEMP = 20.0  # [C]
 OUTSIDE_TEMP = 0.0  # [C]
 RADIATOR_TEMP = np.array([60.0 if (x < 20 * 60) else 0.0 for x in range(N_ITERATIONS)])  # [C]
-ROOM_SIZE = (3.0, 5.0, 2.3)  # w, l, h. Assumes room is cuboid. [m]
-C_STORAGE = 1.0  # Lumped heat capacity of everything in the room, excluding air [J/K].
+RADIATOR_CONDUCTANCE = 25.0  # conductance of radiator to room [W/K]
+ROOM_SIZE = (3.0, 5.0, 2.3)  # w, l, h. Assumes room is cuboid [m].
+C_STORAGE = 1000000.0  # Lumped heat capacity of everything in the room, excluding air [J/K].
 STORAGE_CONDUCTANCE = 1.0  # Lumped thermal conductance of things in the room (how easy it is to transfer energy) [W/K].
 
 
@@ -102,10 +103,9 @@ def calc_heat_in_radiator(room_temp, radiator_temp):
     :param radiator_temp: [C]
     :return: [J]
     """
-    conductance = 25  # thermal conductance [W/K]
-    temp = 2 * radiator_temp - 80.0
+    temp = 2 * radiator_temp - 80.0  # todo: Need to find a decent model for this...
 
-    return (temp - room_temp) * conductance  # assuming 1 kW heat input with room at 20 C [1000 / (60 - 20)]
+    return (temp - room_temp) * RADIATOR_CONDUCTANCE  # assuming 1 kW heat input with room at 20 C [1000 / (60 - 20)]
 
 
 def calc_heat_loss_walls(inside_temp, outside_temp):
@@ -127,12 +127,10 @@ def calc_heat_storage(temperature, heat):
 
     :param temperature: [C]
     :param heat: [C]
-    :return: [J]  # todo fix this currently returns temp.
+    :return: (heat stored [J], change in heat [J])
     """
-    conductance = 1.0
-    capacitance = 1.0
-    # return storage_temp + (((room_temp - storage_temp) * conductance) / capacitance)  # todo fix this
-    return heat + (temperature - (heat / capacitance)) * conductance
+    delta_heat = (temperature - (heat / C_STORAGE)) * STORAGE_CONDUCTANCE
+    return heat + delta_heat, delta_heat
 
 
 def calc_temp(temperature, capacitance, *args):
@@ -153,17 +151,17 @@ def calc_temp(temperature, capacitance, *args):
 air_temps = np.array([START_TEMP for _ in range(N_ITERATIONS)])
 heat_in = np.zeros(N_ITERATIONS)
 heat_out = np.zeros(N_ITERATIONS)
-heat_stored = np.array([START_TEMP * 1.0 for _ in range(N_ITERATIONS)])  # should be multiplied by capacitance.
+heat_stored = np.array([START_TEMP * C_STORAGE for _ in range(N_ITERATIONS)])  # should be multiplied by capacitance.
 
 # Do calculations.
 for i in range(N_ITERATIONS):
-    heat_in[i] = calc_heat_in_radiator(air_temps[i - 1], valve_open_pc[i - 1])
-    heat_out[i] = calc_heat_loss_walls(air_temps[i - 1], OUTSIDE_TEMP)
-    heat_stored[i] = calc_heat_storage(air_temps[i - 1], heat_stored[i - 1])
+    heat_in[i] = calc_heat_in_radiator(air_temps[i-1], valve_open_pc[i-1])
+    heat_out[i] = calc_heat_loss_walls(air_temps[i-1], OUTSIDE_TEMP)
+    heat_stored[i], dheat_storage = calc_heat_storage(air_temps[i-1], heat_stored[i-1])  # todo: verify this makes sense
     air_temps[i] = calc_temp(air_temps[i-1], C_AIR,
                              heat_in[i-1],
                              heat_out[i-1],
-                             -heat_stored[i])
+                             -dheat_storage)
 
 # Print final temp and total energy use.
 print("Final Temp: {0:.2f} C\nEnergy Use: {1:.2f} kJ\nEnergy Loss: {2:.2f} kJ".format(air_temps[-1],
@@ -180,17 +178,16 @@ print("Final Temp: {0:.2f} C\nEnergy Use: {1:.2f} kJ\nEnergy Loss: {2:.2f} kJ".f
 
 # Graph results.
 x = np.array(range(N_ITERATIONS))
-heat_in /= 1000.0
-heat_out /= 1000.0
+heat_air = air_temps * C_AIR
 net_heat = heat_in + heat_out
 plt.subplot(3, 1, 1)
 plt.plot(x, air_temps, label="sim temp C")
 plt.plot(x, valve_room_temps, label="valve temp C")
 plt.legend()
 plt.subplot(3, 1, 2)
-plt.plot(x, heat_in, label="heat input kJ")
-plt.plot(x, heat_out, label="heat loss kJ")
-plt.plot(x, net_heat, label="net heat flow kJ")
+plt.plot(x, heat_in / 1000.0, label="heat input kJ")
+plt.plot(x, heat_out / 1000.0, label="heat loss kJ")
+plt.plot(x, net_heat / 1000.0, label="net heat flow kJ")
 plt.legend()
 plt.subplot(3, 1, 3)
 plt.plot(x, valve_open_pc, label="valve opening %")
