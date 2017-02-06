@@ -9,6 +9,8 @@ heat_in => heat_stored => heat out.
 Gives basic equation
 stored_heat = start_heat + (in_heat + out_heat) [Q_room = Q_start + Q_rad + Q_loss]
 
+NOTE: "Heat capacity" can also be called "thermal capacity" or "thermal mass"
+
 """
 import numpy as np
 import matplotlib.pyplot as plt
@@ -25,12 +27,16 @@ START_TEMP = 20.0  # [C]
 OUTSIDE_TEMP = 0.0  # [C]
 RADIATOR_TEMP = np.array([60.0 if (x < 20 * 60) else 0.0 for x in range(N_ITERATIONS)])  # [C]
 ROOM_SIZE = (3.0, 5.0, 2.3)  # w, l, h. Assumes room is cuboid. [m]
+C_STORAGE = 1.0  # Lumped heat capacity of everything in the room, excluding air [J/K].
+STORAGE_CONDUCTANCE = 1.0  # Lumped thermal conductance of things in the room (how easy it is to transfer energy) [W/K].
+
 
 # Physical constants.
 DENSITY_AIR = 1.205  # Density of air at 20 C, 1 Atm. [Kg/m^3]
 Cp_AIR = 1005.0  # The constant pressure specific heat capacity of air at 20 C, 1 Atm [J Kg/K]
 
 
+# Derived constants.
 VOLUME = ROOM_SIZE[0] * ROOM_SIZE[1] * ROOM_SIZE[2]  # Volume of room. [m^3]
 C_AIR = DENSITY_AIR * VOLUME * Cp_AIR  # Heat capacity of air in the room. [J/K]
 WALL_CONDUCTANCE = ROOM_SIZE[0] * ROOM_SIZE[1] * DHD_HLP  # Thermal conductance based on DHD's SAP
@@ -38,6 +44,7 @@ print("Thermal Conductance: {0:.0f} W/K\nHeat Capacity: {1:.0f} kJ/K".format(WAL
 
 
 def get_valve_data(file):
+    """ Horrible mess of a function for extracting stuff from OpenTRV log files. """
     with open(file, 'r') as f:
         raw_valve_data = f.readlines()
     decoded_valve_data = [json.loads(x) for x in raw_valve_data]
@@ -58,9 +65,11 @@ def get_valve_data(file):
         stripped_date = line[0].replace('T', ' ').replace('Z', '')
         decoded_time = dt.datetime.strptime(stripped_date, "%Y-%m-%d %H:%M:%S")
         valve_open_pc.append((decoded_time, line[1]))
+    # find earliest time and calculate elapsed time in seconds relative to it.
     start_time = temperatures[0][0] if temperatures[0][0] < valve_open_pc[0][0] else valve_open_pc[0][0]
     temperatures = [((x[0] - start_time).total_seconds(), x[1]) for x in temperatures]
     valve_open_pc = [((x[0] - start_time).total_seconds(), x[1]) for x in valve_open_pc]
+    # Populate arrays with relevant data at correct time.
     temp = [None] * N_ITERATIONS
     open_pc = [None] * N_ITERATIONS
     for x in temperatures:
@@ -78,6 +87,7 @@ def get_valve_data(file):
             temp[i] = temp[i-1]
         if open_pc[i] is None:
             open_pc[i] = open_pc[i-1]
+    # return the temperature in C and valve opening in % as numpy arrays.
     return np.array(temp), np.array(open_pc)
 
 valve_room_temps, valve_open_pc = get_valve_data("201701.json")
@@ -98,66 +108,67 @@ def calc_heat_in_radiator(room_temp, radiator_temp):
     return (temp - room_temp) * conductance  # assuming 1 kW heat input with room at 20 C [1000 / (60 - 20)]
 
 
-def calc_heat_loss_walls(room_temp, outside_temp):
+def calc_heat_loss_walls(inside_temp, outside_temp):
     """ Get the heat loss through the walls, floor and ceiling this iteration.
 
     Assume outside is the same temp for all walls.
 
-    :param room_temp: [C]
+    :param inside_temp: [C]
     :param outside_temp: [C]
     :return: [J]
     """
-    return (outside_temp - room_temp) * WALL_CONDUCTANCE
+    return (outside_temp - inside_temp) * WALL_CONDUCTANCE
 
 
-def calc_heat_storage(room_temp, storage_temp):
+def calc_heat_storage(temperature, heat):
     """ Calculate the amount of heat stored/released by things in the room, other than the air mass.
 
     Assume everything can be lumped together into a single capacitance/resistance.
 
-    :param room_temp: [C]
-    :param storage_temp: [C]
+    :param temperature: [C]
+    :param heat: [C]
     :return: [J]  # todo fix this currently returns temp.
     """
     conductance = 1.0
-    capacitance = 100000000.0
-    return storage_temp + (((room_temp - storage_temp) * conductance) / capacitance)  # todo fix this
+    capacitance = 1.0
+    # return storage_temp + (((room_temp - storage_temp) * conductance) / capacitance)  # todo fix this
+    return heat + (temperature - (heat / capacitance)) * conductance
 
 
-def calc_temp(room_temp, *args):
+def calc_temp(temperature, capacitance, *args):
     """ Calculate the new room temperature
 
     Assume entire room heats up instantly and evenly.
 
-    :param room_temp: Current room temperature. [C]
+    :param temperature: Current room temperature. [C]
+    :param capacitance: Heat capacitance [J/K]
     :param args: Heat flow into room (note! +ve is heat source, -ve is heat sink). [J]
     :return: New room temperature. [C]
     """
-    return room_temp + (1.0 / C_AIR) * sum(args)
+    return temperature + (1.0 / capacitance) * sum(args)
 
 
-room_temps = np.array([START_TEMP for _ in range(N_ITERATIONS)])
+# Setup result arrays.
+# Seeded with reasonable values throughout array to allow index 0 to be treated normally.
+air_temps = np.array([START_TEMP for _ in range(N_ITERATIONS)])
 heat_in = np.zeros(N_ITERATIONS)
 heat_out = np.zeros(N_ITERATIONS)
-heat_stored = np.array([START_TEMP for _ in range(N_ITERATIONS)])  # todo fix this
+heat_stored = np.array([START_TEMP * 1.0 for _ in range(N_ITERATIONS)])  # should be multiplied by capacitance.
 
-
+# Do calculations.
 for i in range(N_ITERATIONS):
-    # rad_temp = room_temps[i-1] if RADIATOR_TEMP[i] == 0.0 else RADIATOR_TEMP[i]
-    heat_in[i] = calc_heat_in_radiator(room_temps[i - 1], valve_open_pc[i - 1])
-    heat_out[i] = calc_heat_loss_walls(room_temps[i - 1], OUTSIDE_TEMP)
-    heat_stored[i] = calc_heat_storage(room_temps[i - 1], heat_stored[i - 1])
-    # print(bar)
-    room_temps[i] = calc_temp(room_temps[i-1],
-                              heat_in[i-1],
-                              heat_out[i-1],
-                              (heat_stored[i - 2] - heat_stored[i - 1]) * 1000000.0)  # todo fix this
+    heat_in[i] = calc_heat_in_radiator(air_temps[i - 1], valve_open_pc[i - 1])
+    heat_out[i] = calc_heat_loss_walls(air_temps[i - 1], OUTSIDE_TEMP)
+    heat_stored[i] = calc_heat_storage(air_temps[i - 1], heat_stored[i - 1])
+    air_temps[i] = calc_temp(air_temps[i-1], C_AIR,
+                             heat_in[i-1],
+                             heat_out[i-1],
+                             -heat_stored[i])
 
 # Print final temp and total energy use.
-print("Final Temp: {0:.2f} C\nEnergy Use: {1:.2f} kJ\nEnergy Loss: {2:.2f} kJ".format(room_temps[-1],
+print("Final Temp: {0:.2f} C\nEnergy Use: {1:.2f} kJ\nEnergy Loss: {2:.2f} kJ".format(air_temps[-1],
                                                                                       sum(heat_in) / 1000.0,
                                                                                       sum(heat_out) / 1000.0))
-
 # # Print per iteration values.
 # for i in range(len(room_temps)):
 #     if i % 60 == 0:
@@ -166,15 +177,14 @@ print("Final Temp: {0:.2f} C\nEnergy Use: {1:.2f} kJ\nEnergy Loss: {2:.2f} kJ".f
 #                                                                           bar[i] * 1000.0,
 #                                                                           heat_in[i],
 #                                                                           heat_out[i]))
+
+# Graph results.
 x = np.array(range(N_ITERATIONS))
 heat_in /= 1000.0
 heat_out /= 1000.0
 net_heat = heat_in + heat_out
-# heat_stored = room_temps * C_AIR / 1000.0
-# plot_valve_temps = valve_room_temps[valve_room_temps[:, 0] < N_ITERATIONS]
-# plot_valve_pc = valve_open_pc[valve_open_pc[:, 0] < N_ITERATIONS]
 plt.subplot(3, 1, 1)
-plt.plot(x, room_temps, label="sim temp C")
+plt.plot(x, air_temps, label="sim temp C")
 plt.plot(x, valve_room_temps, label="valve temp C")
 plt.legend()
 plt.subplot(3, 1, 2)
