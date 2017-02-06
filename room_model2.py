@@ -25,7 +25,6 @@ DHD_HLP = 2.56  # SAP Heat loss parameter. Total heat loss / total floor area. [
 N_ITERATIONS = 24 * 60 * 60  # on for a day
 START_TEMP = 20.0  # [C]
 OUTSIDE_TEMP = 0.0  # [C]
-RADIATOR_TEMP = np.array([60.0 if (x < 20 * 60) else 0.0 for x in range(N_ITERATIONS)])  # [C]
 RADIATOR_CONDUCTANCE = 25.0  # conductance of radiator to room [W/K]
 ROOM_SIZE = (3.0, 5.0, 2.3)  # w, l, h. Assumes room is cuboid [m].
 C_STORAGE = 1000000.0  # Lumped heat capacity of everything in the room, excluding air [J/K].
